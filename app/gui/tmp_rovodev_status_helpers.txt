@@ -1,0 +1,26 @@
+Methods to add in MainWindow:
+
+    def _start_status_updates(self):
+        self._status_timer = QtCore.QTimer(self)
+        self._status_timer.setInterval(2000)
+        self._status_timer.timeout.connect(self._update_status_bar)
+        self._status_timer.start()
+        self._update_status_bar()
+
+    def _update_status_bar(self):
+        try:
+            from ..ingest_server import get_ingest_stats
+            st = get_ingest_stats()
+            srv = "running" if st.get("running") else "stopped"
+            last = st.get("last_ingest_ts")
+            cnt = st.get("last_ingest_count", 0)
+            if last:
+                import time
+                ago = int(time.time() - last)
+                self._status_server.setText(f"Server: {srv}, last ingest {ago}s ago ({cnt} files)")
+            else:
+                self._status_server.setText(f"Server: {srv}")
+        except Exception:
+            self._status_server.setText("Server: n/a")
+        # Agent status placeholder (extend if you track multiple agents)
+        self._status_agent.setText("Agent: active")
