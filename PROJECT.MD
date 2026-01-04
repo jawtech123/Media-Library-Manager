@@ -86,6 +86,56 @@ The system consists of a host application (ingest server + GUI) and a lightweigh
 - Centralized scan/classification logic to keep consistency between local and remote contexts
 - Efficient, resilient scanning that can stop/restart without losing progress
 
+## Deep Dive Architecture
+
+The system is split into a host app and a remote agent, communicating via plain JSON over HTTP.
+
+- Host (ingest server + GUI)
+  - Accepts batches via `POST /ingest/batch` and upserts them into a local SQLite/DB (see `app/db.py`).
+  - Provides `GET /ingest/config` which agents poll for settings (e.g., roots, batching, hashing, throttling).
+  - GUI surfaces:
+    - Junk tab for quick triage of unwanted files (e.g., partial downloads, archives).
+    - Duplicates tab for inspecting duplicate clusters detected by hashes.
+    - Unknown tab for items not recognized by classification.
+    - Organizer tab (WIP) to preview/commit renames and moves.
+  - The local scanner (if enabled) shares classification logic (`app/scan_common.py`) with the agent.
+
+- Remote Agent
+  - Standalone `agent.py` with embedded SQLite cache for:
+    - `agent_index`: inode identity and last probe/hash results.
+    - `outbox`: queued batches when offline.
+    - `scan_progress`: per-root, per-phase cursors to resume.
+  - Two-pass scanning:
+    - Pass 1 (fast): classify + compute sample (and optionally full) hashes; do not run ffprobe.
+    - Pass 2 (metadata): ffprobe for videos only; do not recompute hashes.
+  - Posting:
+    - JSON body `{ "batch_id": string, "files": [...] }` to `/ingest/batch`.
+    - Optional gzip (controlled by host config); no tokens or custom headers.
+  - Offline/Resume behavior:
+    - If the host is unreachable or batch post fails, enqueue payload in `outbox` and continue scanning.
+    - Drain `outbox` on startup and after any successful post.
+    - Resume from `scan_progress` cursors after restarts.
+
+## Operational Workflows
+
+- Initial setup
+  1. Start host: `python main.py` (defaults to `0.0.0.0:8765`).
+  2. Configure `remote_roots` via settings or GUI.
+  3. Start agent(s): `python agent.py <host>` on each remote machine.
+
+- Day-to-day ingest
+  - Agents perform two-pass scans, continuously flushing batches by size and time to keep the UI responsive.
+  - Hashes are reused if inode identity and hashing parameters match; ffprobe is skipped if already probed for the inode.
+  - Dupes/junk become visible in the GUI as batches land.
+
+- Offline periods
+  - Agents continue scanning and queue batches in `outbox`.
+  - Once the host is reachable, outbox drains automatically.
+
+- Organizer (WIP)
+  - Use the naming template in settings to preview changes.
+  - Commit operations will rename/move to target structure (additional safety checks planned).
+
 ## Roadmap Ideas
 
 - Enhanced duplicate detection heuristics across different container formats
