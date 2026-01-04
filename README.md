@@ -104,4 +104,4 @@ See `app/settings.py` for defaults and descriptions:
 
 ## License
 
-Add your preferred license (MIT/Apache-2.0/etc.).
+Apache-2.0
